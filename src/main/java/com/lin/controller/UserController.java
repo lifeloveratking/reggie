@@ -8,6 +8,7 @@ import com.lin.untils.ValidateCodeUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpSession;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 
 @RestController
@@ -23,6 +25,9 @@ import java.util.Map;
 public class UserController {
     @Autowired
     private UserService userService;
+    @Autowired
+    private RedisTemplate redisTemplate;
+
     /**
      * 发送短信验证码
      * @param user
@@ -41,9 +46,8 @@ public class UserController {
 
             // 调用阿里云提供的短信服务API完成短信发送，为了不浪费钱，注释了，功能不影响
             // SMSUtils.sendMessage("小沐沐吖","SMS_248910220",phone,code);
-
-            // 需要将生成的验证码保存到session
-            session.setAttribute(phone, code);
+            //将生成的验证码缓存到redis中，并且设置有效期为5分钟
+            redisTemplate.opsForValue().set(phone, code, 5, TimeUnit.MINUTES);
             return R.success("手机验证码短信发送成功！");
         }
 
@@ -66,7 +70,7 @@ public class UserController {
         String code = map.get("code").toString();
 
         // 从session中获取保存的验证码
-        String codeInSession = (String) session.getAttribute(phone);
+        Object codeInSession =redisTemplate.opsForValue().get(phone);
 
         // 进行验证码校验
         if (codeInSession != null && codeInSession.equals(code)){
@@ -82,9 +86,11 @@ public class UserController {
                 userService.save(user);
             }
             session.setAttribute("user", user.getId());
+            //如果登录成功，删除redis中的验证码
+            redisTemplate.delete(phone);
             return R.success(user);
         }
-        return R.error("登录成功");
+        return R.error("登录失败");
     }
     /**
      * 用户退出
